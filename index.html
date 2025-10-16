@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Safety APP ASEP CS-D</title>
+<style>
+  body { font-family: Arial; margin:0; padding:0; background:#071026; color:#e6eef8; display:flex; flex-direction:column; min-height:100vh;}
+  header { padding:12px; text-align:center; background:#081428; font-size:18px; font-weight:bold; border-bottom:1px solid rgba(255,255,255,0.1);}
+  .container { flex:1; padding:12px; display:flex; flex-direction:column; gap:12px; max-width:500px; margin:0 auto;}
+  .card { background:rgba(255,255,255,0.05); padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);}
+  button { padding:12px; border-radius:10px; border:none; font-weight:bold; font-size:16px; cursor:pointer; flex:1;}
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+  iframe { width:100%; height:250px; border-radius:10px; border:1px solid rgba(255,255,255,0.1);}
+  video { width:100%; border-radius:10px; border:1px solid rgba(255,255,255,0.1);}
+  .danger { background:#ff375f; color:#fff; }
+  .secondary { background:#555; color:#fff; }
+  input, textarea { width:100%; padding:6px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background:rgba(0,0,0,0.2); color:#fff;}
+  @media (max-width:400px){ .row { flex-direction:column; }}
+</style>
+</head>
+<body>
+
+<header>Safety APP ASEP CS-D project</header>
+<div class="container">
+
+  <!-- Status Info -->
+  <div class="card">
+    <strong>Status Info</strong>
+    <div>Battery: <span id="battery">N/A</span></div>
+    <div>Network: <span id="network">N/A</span></div>
+    <div>Speed: <span id="speed">N/A</span></div>
+    <div>Last Update: <span id="timestamp">N/A</span></div>
+  </div>
+
+  <!-- Live Tracking -->
+  <div class="card">
+    <strong>Live Location</strong>
+    <p id="status">Status: Not tracking</p>
+    <div>Latitude: <span id="lat">N/A</span></div>
+    <div>Longitude: <span id="lon">N/A</span></div>
+    <div>Accuracy: <span id="acc">—</span></div>
+    <div class="row">
+      <button id="startTrack">Start</button>
+      <button id="stopTrack" class="secondary">Stop</button>
+    </div>
+    <iframe id="map" src="https://maps.google.com/maps?q=20,77&z=15&output=embed"></iframe>
+    <div class="row">
+      <button id="policeBtn" class="secondary">Nearby Police</button>
+      <button id="panicBtn" class="danger">PANIC</button>
+      <button id="smsBtn" class="secondary">SMS</button>
+      <button id="copyBtn" class="secondary">Copy Location</button>
+    </div>
+    <textarea id="note" placeholder="Type emergency note (optional)"></textarea>
+  </div>
+
+  <!-- Camera -->
+  <div class="card">
+    <strong>Emergency Camera</strong>
+    <select id="cameraSelect"></select>
+    <div class="row">
+      <button id="startCam">Start Camera</button>
+      <button id="snap" class="secondary">Snapshot</button>
+      <button id="stopCam" class="secondary">Stop</button>
+      <button id="torchBtn" class="secondary">Toggle Torch</button>
+    </div>
+    <video id="video" autoplay playsinline muted></video>
+  </div>
+
+</div>
+
+<script>
+const el = id=>document.getElementById(id);
+let watchId=null;
+let camStream=null;
+let camDevices=[];
+let torchTrack=null;
+
+// -------------------------
+// Battery & Network Info
+// -------------------------
+function updateBattery(bat){
+  el('battery').textContent = Math.round(bat.level*100)+'%';
+}
+function updateNetwork(){ el('network').textContent = navigator.connection ? navigator.connection.effectiveType : 'N/A'; }
+if(navigator.getBattery){
+  navigator.getBattery().then(bat=>{
+    updateBattery(bat);
+    bat.onlevelchange = ()=>updateBattery(bat);
+  });
+}
+updateNetwork();
+if(navigator.connection){ navigator.connection.onchange=updateNetwork; }
+
+// -------------------------
+// Live Location Tracking
+// -------------------------
+function startTracking(){
+  if(!navigator.geolocation){ alert('Geolocation not supported'); return; }
+  el('status').textContent='Status: Tracking...';
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    const lat = pos.coords.latitude.toFixed(6);
+    const lon = pos.coords.longitude.toFixed(6);
+    el('lat').textContent=lat;
+    el('lon').textContent=lon;
+    el('acc').textContent=Math.round(pos.coords.accuracy)+' m';
+    el('speed').textContent=pos.coords.speed ? Math.round(pos.coords.speed*3.6)+' km/h' : 'N/A';
+    el('timestamp').textContent=new Date().toLocaleTimeString();
+    el('map').src=`https://maps.google.com/maps?q=${lat},${lon}&z=15&output=embed`;
+  }, err=>{ alert('Location error: '+err.message); el('status').textContent='Status: Error'; }, {enableHighAccuracy:true});
+}
+function stopTracking(){ if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; el('status').textContent='Status: Stopped'; } }
+
+// -------------------------
+// Nearby Police
+// -------------------------
+function nearbyPolice(){ 
+  if(el('lat').textContent==='N/A'){ alert('No location yet'); return; }
+  window.open(`https://www.google.com/maps/search/police+station+near+${el('lat').textContent},${el('lon').textContent}`,'_blank');
+}
+
+// -------------------------
+// Panic WhatsApp + SMS
+// -------------------------
+async function panic(){
+  if(el('lat').textContent==='N/A'){ alert('No location yet'); return; }
+  let battery='N/A';
+  if(navigator.getBattery){ battery=Math.round((await navigator.getBattery()).level*100)+'%'; }
+  const note = el('note').value;
+  const msg=`PANIC ALERT!\nTime: ${new Date().toLocaleString()}\nLat: ${el('lat').textContent}\nLon: ${el('lon').textContent}\nAccuracy: ${el('acc').textContent}\nBattery: ${battery}\n${note}\nhttps://maps.google.com?q=${el('lat').textContent},${el('lon').textContent}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,'_blank');
+}
+function sendSMS(){
+  if(el('lat').textContent==='N/A'){ alert('No location yet'); return; }
+  const note = el('note').value;
+  const msg=`EMERGENCY!\nLat: ${el('lat').textContent}\nLon: ${el('lon').textContent}\nAccuracy: ${el('acc').textContent}\n${note}`;
+  window.open(`sms:?body=${encodeURIComponent(msg)}`,'_blank');
+}
+function copyLocation(){
+  if(el('lat').textContent==='N/A'){ alert('No location yet'); return; }
+  navigator.clipboard.writeText(`Lat:${el('lat').textContent}, Lon:${el('lon').textContent}`);
+  alert('Location copied!');
+}
+
+// -------------------------
+// Camera
+// -------------------------
+async function enumerateCameras(){
+  const devices=await navigator.mediaDevices.enumerateDevices();
+  camDevices=devices.filter(d=>d.kind==='videoinput');
+  const sel=el('cameraSelect'); sel.innerHTML='';
+  camDevices.forEach((d,i)=>{ const opt=document.createElement('option'); opt.value=d.deviceId; opt.textContent=d.label||`Camera ${i+1}`; sel.appendChild(opt); });
+}
+async function startCamera(){
+  try{
+    const deviceId=el('cameraSelect').value||undefined;
+    camStream=await navigator.mediaDevices.getUserMedia({video: deviceId?{deviceId:{exact:deviceId}}:{facingMode:'environment'}, audio:false});
+    el('video').srcObject=camStream;
+
+    // Torch support
+    const track=camStream.getVideoTracks()[0];
+    if(track.getCapabilities && track.getCapabilities().torch) torchTrack=track;
+  }catch(e){ alert('Camera error: '+e.message); }
+}
+function stopCamera(){ if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream=null; el('video').srcObject=null; torchTrack=null; } }
+function snapshot(){ if(!camStream){ alert('Camera not running'); return; }
+  const v=el('video'); const c=document.createElement('canvas'); c.width=v.videoWidth||640; c.height=v.videoHeight||480;
+  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  const data=c.toDataURL('image/jpeg');
+  const w=window.open();
+  if(!w){ alert('Popup blocked — copy image from canvas'); return; }
+  w.document.write(`<img src="${data}" style="max-width:100%"><p>Long-press to save/share</p>`);
+}
+function toggleTorch(){ if(torchTrack){ const cap=torchTrack.getCapabilities(); if(cap.torch){ const curr=torchTrack.getSettings().torch||false; torchTrack.applyConstraints({advanced:[{torch:!curr}]}); } else alert('Torch not supported'); } else alert('Start camera first'); }
+
+// -------------------------
+// Event Listeners
+// -------------------------
+el('startTrack').onclick=startTracking;
+el('stopTrack').onclick=stopTracking;
+el('policeBtn').onclick=nearbyPolice;
+el('panicBtn').onclick=panic;
+el('smsBtn').onclick=sendSMS;
+el('copyBtn').onclick=copyLocation;
+
+el('startCam').onclick=startCamera;
+el('stopCam').onclick=stopCamera;
+el('snap').onclick=snapshot;
+el('torchBtn').onclick=toggleTorch;
+
+enumerateCameras();
+
+// -------------------------
+// Automatically start tracking on page load
+// -------------------------
+window.onload = () => {
+  startTracking();   // Start tracking immediately
+  enumerateCameras(); // Optional: populate camera list
+};
+
+// Optional: hide start/stop buttons if you want
+el('startTrack').style.display = 'none';
+el('stopTrack').style.display = 'none';
+
+</script>
+
+</body>
+</html>
